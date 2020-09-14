@@ -9,11 +9,25 @@
 #include <sys/utsname.h>
 
 Display* _display;
+XineramaScreenInfo* _xsi = NULL;
+
+void cleanup()
+{
+	if (NULL != _xsi)
+	{
+		XFree(_xsi);
+		_xsi = NULL;
+	}
+	if (NULL != _display)
+	{
+		XCloseDisplay(_display);
+		_display = NULL;
+	}
+}
 
 void error_exit(int ret)
 {
-	if (NULL != _display)
-		XCloseDisplay(_display);
+	cleanup();
 	exit(ret);
 }
 
@@ -87,16 +101,45 @@ void maximize_window(Window window, long wmstate)
 	XSendEvent(_display, DefaultRootWindow(_display), False, SubstructureNotifyMask, &xev);
 }
 
+void get_window_position(Window window, int screen, int* x, int* y, int* w, int* h)
+{
+	XWindowAttributes xwa;
+	XGetWindowAttributes(_display, window, &xwa);
+	/*Window retroot;
+	int retx, rety;
+	unsigned int retw, reth, retb, retd;
+	XGetGeometry(_display, window, &retroot, &retx, &rety, &retw, &reth, &retb, &retd);*/
+	*x = xwa.x;
+	*y = xwa.y;
+	*w = xwa.width;
+	*h = xwa.height;
+	Window wroot;
+	Window wchild;
+	XTranslateCoordinates(_display, window, RootWindow(_display, screen),
+		0, 0, x, y, &wchild);
+	Atom atype;
+	int format;
+	unsigned long nitems, bytesafter;
+	unsigned char* props;
+	Atom atom = XInternAtom(_display, "_NET_FRAME_EXTENTS", True);
+	Status status = XGetWindowProperty(_display, window, atom, 0, LONG_MAX,
+		False, AnyPropertyType, &atype, &format,
+		&nitems, &bytesafter, &props);
+	if (Success != status)
+		return;
+	*x -= *((unsigned long*)props);
+	*y -= *((unsigned long*)props + 2);
+	*w += *((unsigned long*)props) + *((unsigned long*)props + 1);
+	*h += *((unsigned long*)props + 2) + *((unsigned long*)props + 3);
+	XFree(props);
+}
+
 int main(int argc, char** argv)
 {
 	int targetmon = 1;
 	int actualmon = -1;
 	int moncount = 0;
-	unsigned long nitems, bytesafter;
-	unsigned char* prop;
-	int curx, cury;
-	XWindowAttributes xwa;
-	Window wchild;
+	int curx, cury, curw, curh;
 	if (argc > 1)
 	{
 		int tm = atoi(argv[1]);
@@ -109,34 +152,45 @@ int main(int argc, char** argv)
 	int screen = XDefaultScreen(_display);
 	Window window = RootWindow(_display, screen);
 	window = get_active_window(window);
+	if (0 == window)
+		error_exit(EXIT_FAILURE);
 	int ismax = is_window_maximized(window);
-	XGetWindowAttributes(_display, window, &xwa);
-	XTranslateCoordinates(_display, window, RootWindow(_display, screen),
-		0, 0, &curx, &cury, &wchild);
-	XineramaScreenInfo* xsi = XineramaQueryScreens(_display, &moncount);
+	get_window_position(window,  screen, &curx, &cury, &curw, &curh);
+	_xsi = XineramaQueryScreens(_display, &moncount);
 	if (targetmon > moncount)
 		error_exit(1);
 	for (size_t i = 0; i < (size_t)moncount; i++)
 	{
-		if ((curx >= xsi[i].x_org) && (curx < (xsi[i].width + xsi[i].x_org)))
-			if ((cury >= xsi[i].y_org) && (cury < (xsi[i].height + xsi[i].y_org)))
+		if ((curx >= _xsi[i].x_org) && (curx < (_xsi[i].width + _xsi[i].x_org)))
+			if ((cury >= _xsi[i].y_org) && (cury < (_xsi[i].height + _xsi[i].y_org)))
 				actualmon = i+1;
 	}
 	if (actualmon == targetmon)
 	{
-		XCloseDisplay(_display);
+		cleanup();
 		return EXIT_SUCCESS;
 	}
 	if (0 != ismax)
-	{
 		maximize_window(window, 0);
-	}
-	XMoveWindow(_display, window, xsi[targetmon-1].x_org, xwa.y);
-	if (0 != ismax)
+	int targetx = _xsi[targetmon-1].x_org + curx - _xsi[actualmon-1].x_org;
+	int targety = cury;
+	if (targetx + curw > _xsi[targetmon-1].x_org + _xsi[targetmon-1].width)
 	{
-		maximize_window(window, 1);
+		targetx = _xsi[targetmon-1].x_org + (_xsi[targetmon-1].width - curw);
+		if (targetx < _xsi[targetmon-1].x_org)
+			targetx = _xsi[targetmon-1].x_org;
 	}
-	XFree(xsi);
-	XCloseDisplay(_display);
+	if (targety + curh > _xsi[targetmon-1].y_org + _xsi[targetmon-1].height)
+	{
+		targety = _xsi[targetmon-1].y_org +
+			(_xsi[targetmon-1].height - curh);
+		if (targety < _xsi[targetmon-1].y_org)
+			targety = _xsi[targetmon-1].y_org;
+	}
+	XMoveWindow(_display, window, targetx, targety);
+	if (0 != ismax)
+		maximize_window(window, 1);
+
+	cleanup();
 	return EXIT_SUCCESS;
 }
