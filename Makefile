@@ -1,5 +1,5 @@
 LDFLAGS = -lX11 -lXinerama -lm
-CFLAGS = -O2 -Wall
+CFLAGS = -O2 -Wall -Werror -pedantic -std=c99
 
 objects = window-to-monitor.o
 target = rc-window-to-monitor

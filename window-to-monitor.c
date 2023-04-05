@@ -11,7 +11,7 @@
 static Display* _display;
 static XineramaScreenInfo* _xsi = NULL;
 
-static void cleanup()
+static void cleanup(void)
 {
 	if (NULL != _xsi)
 	{
@@ -37,13 +37,15 @@ static Window get_active_window(Window winroot)
 	int format, status;
 	unsigned char* props = NULL;
 	unsigned long nitems, bytes_after;
-	Atom afilter = XInternAtom(_display, "_NET_ACTIVE_WINDOW", True);
+	unsigned long longprop;
+	Atom afilter;
+	afilter = XInternAtom(_display, "_NET_ACTIVE_WINDOW", True);
 	status = XGetWindowProperty(_display, winroot, afilter, 0, LONG_MAX,
 		False, AnyPropertyType, &atype, &format,
 		&nitems, &bytes_after, &props);
 	if (status != Success)
 		error_exit(status);
-	unsigned long longprop = *((long*)props);
+	longprop = *((long*)props);
 	XFree(props);
 	return longprop;
 }
@@ -127,10 +129,13 @@ static void get_window_position(Window window, int screen, int* x, int* y,
 
 int main(int argc, char** argv)
 {
+	int screen;
+	Window window;
 	int targetmon = 1;
 	int actualmon = -1;
 	int moncount = 0;
 	int curx, cury, curw, curh;
+	int ismax;
 	if (argc > 1)
 	{
 		int tm = atoi(argv[1]);
@@ -140,12 +145,12 @@ int main(int argc, char** argv)
 	_display = XOpenDisplay(NULL);
 	if (NULL == _display)
 		return EXIT_FAILURE;
-	int screen = XDefaultScreen(_display);
-	Window window = RootWindow(_display, screen);
+	screen = XDefaultScreen(_display);
+	window = RootWindow(_display, screen);
 	window = get_active_window(window);
 	if (0 == window)
 		error_exit(EXIT_FAILURE);
-	int ismax = is_window_maximized(window);
+	ismax = is_window_maximized(window);
 	get_window_position(window,  screen, &curx, &cury, &curw, &curh);
 	_xsi = XineramaQueryScreens(_display, &moncount);
 	if (targetmon > moncount)
